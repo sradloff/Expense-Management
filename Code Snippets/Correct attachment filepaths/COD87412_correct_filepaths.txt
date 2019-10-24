@@ -1,0 +1,143 @@
+OBJECT Codeunit 87412 EM Correct Path
+{
+  OBJECT-PROPERTIES
+  {
+    Date=24.10.19;
+    Time=13:25:17;
+    Modified=Yes;
+    Version List=;
+  }
+  PROPERTIES
+  {
+    OnRun=VAR
+            Expense@1000000002 : Record 6086320;
+            EMDocumentFileSystem@1000000001 : Codeunit 6086397;
+            FileManagement@1000000003 : Codeunit 419;
+            DateCreated@1000000004 : Date;
+            tempFileName@1000000005 : Text;
+            tempFilePath@1000000006 : Text;
+          BEGIN
+            EMSetup.GET;
+            ContCompSetup.GET;
+
+            IF EMAttachment.FINDSET(TRUE,FALSE) THEN
+            REPEAT
+
+              IF NOT (FileManagement.ServerFileExists(GetAttachServerFilePath(EMAttachment))) THEN BEGIN
+                GetAttachServerFilePath(EMAttachment);
+                DateCreated := EMAttachment.GetCreatedDate;
+
+                CLEAR(tempFileName);
+                CLEAR(tempFilePath);
+                tempFilePath :=  FindFileInPathDN(GetArchiveDirFromDate(DateCreated),STRSUBSTNO('*%1*',GetFileNameWithoutExtension(EMAttachment."File Name")));
+                tempFileName := FileManagement.GetFileName(tempFilePath);
+
+                IF tempFileName <> '' THEN BEGIN
+                  EMAttachment.Fehlt := FALSE;
+                  EMAttachment.Existiert := TRUE;
+                  EMAttachment."Attachment GUID" := COPYSTR(tempFileName,1,STRPOS(tempFileName,'}'));
+                  EMAttachment."File Name" := COPYSTR(tempFileName,STRPOS(tempFileName,'}')+4,STRLEN(COPYSTR(tempFileName,STRPOS(tempFileName,'}')+4)));
+                  IF FileManagement.ServerFileExists(GetAttachServerFilePath(EMAttachment)) THEN
+                    EMAttachment.MODIFY;
+                END
+              END;
+
+            UNTIL EMAttachment.NEXT = 0;
+
+            IF CONFIRM('Done') THEN;
+          END;
+
+  }
+  CODE
+  {
+    VAR
+      EMAttachment@1000000000 : Record 6086359;
+      EMSetup@1000000001 : Record 6086300;
+      ContCompSetup@1000000004 : Record 6192773;
+      FileSysMgt@1000000002 : Codeunit 6085584;
+      FileInfo@1000000003 : Codeunit 6085666;
+
+    LOCAL PROCEDURE GetAttachServerFilePath@6085573(VAR EMAttachment@6085575 : Record 6086359) FullFilename : Text[1024];
+    VAR
+      DateCreated@1160040000 : Date;
+    BEGIN
+      EMSetup.TESTFIELD("Archive Directory Structure");
+
+      DateCreated := EMAttachment.GetCreatedDate;
+      IF DateCreated = 0D THEN
+        EXIT;
+
+      FullFilename :=
+        STRSUBSTNO('%1%2 - %3',GetArchiveDirFromDate(DateCreated),EMAttachment."Attachment GUID",EMAttachment."File Name");
+      FileSysMgt.CreateDirectory(FileInfo.GetFilePath(FullFilename));
+    END;
+
+    LOCAL PROCEDURE GetArchiveDirFromDate@1160040002(DateCreated@1160040000 : Date) Path : Text[1024];
+    BEGIN
+      Path := EMSetup."Archive Path" +
+        GetSubDir(EMSetup."Archive Directory Structure",DateCreated,EMSetup."Company Code in Archive",ContCompSetup."Company Code");
+    END;
+
+    LOCAL PROCEDURE GetSubDir@1160040001(Structure@1160040000 : Integer;Date@1160040001 : Date;CompCodeInArchive@1160040002 : Boolean;CompanyCode@1160040003 : Code[20]) : Text[1024];
+    VAR
+      Path@1160040006 : Text[1024];
+      Day@1160040005 : Code[2];
+      Month@1160040004 : Code[2];
+      DayInteger@1160040008 : Integer;
+      MonthInteger@1160040007 : Integer;
+    BEGIN
+      MonthInteger := DATE2DMY(Date,2);
+      DayInteger := DATE2DMY(Date,1);
+
+      IF MonthInteger < 10 THEN
+        Month := '0' + FORMAT(MonthInteger)
+      ELSE
+        Month := FORMAT(MonthInteger);
+
+      IF DayInteger < 10 THEN
+        Day := '0' + FORMAT(DayInteger)
+      ELSE
+        Day := FORMAT(DayInteger);
+
+      IF CompCodeInArchive AND (CompanyCode <> '') THEN
+        Path := '\' + CompanyCode + '\'
+      ELSE
+        Path := '\';
+
+      CASE Structure OF
+        EMSetup."Archive Directory Structure"::"One Directory":
+          EXIT(Path);
+        EMSetup."Archive Directory Structure"::"Year\Month":
+          EXIT(Path + STRSUBSTNO('%1\%2\',DATE2DMY(Date,3),Month));
+        EMSetup."Archive Directory Structure"::"Year\Month\Day":
+          EXIT(Path + STRSUBSTNO('%1\%2\%3\',DATE2DMY(Date,3),Month,Day));
+      END;
+    END;
+
+    PROCEDURE GetFileNameWithoutExtension@1000000001(Filepath@1000000000 : Text) : Text;
+    BEGIN
+      Filepath := CONVERTSTR(Filepath, '(', '?');
+      Filepath := CONVERTSTR(Filepath, ')', '?');
+      EXIT(COPYSTR(Filepath,1,STRPOS(Filepath,'.')-1));
+    END;
+
+    LOCAL PROCEDURE FindFileInPathDN@1000000006(Pathname@1000000000 : Text;FileFilter@1000000001 : Text) : Text;
+    VAR
+      dn_Folder@1000000002 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.Directory";
+      dn_Lst@1000000003 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Collections.Generic.List`1";
+      dn_Obj@1000000004 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Object";
+    BEGIN
+      dn_Obj := dn_Folder.GetFiles(FORMAT(Pathname), FileFilter);
+      dn_Lst := dn_Lst.List;
+      dn_Lst.AddRange(dn_Obj);
+      IF dn_Lst.Count > 0 THEN
+        EXIT(dn_Lst.Item(0))
+      ELSE
+        EXIT('');
+    END;
+
+    BEGIN
+    END.
+  }
+}
+
